@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Why Stripe Webhooks Fail Silently After Retries (And How to Catch Them)</title>
+  <meta name="description" content="Stripe retries failed webhooks 3 times over 3 days — then silently stops. Learn why webhook failures go unnoticed, what gets lost, and how to monitor delivery in production." />
+  <link rel="canonical" href="https://lior-seats.github.io/webhookpulse-waitlist/blog/stripe-webhook-silent-failures.html" />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://lior-seats.github.io/webhookpulse-waitlist/blog/stripe-webhook-silent-failures.html" />
+  <meta property="og:title" content="Why Stripe Webhooks Fail Silently After Retries" />
+  <meta property="og:description" content="Stripe retries webhooks 3 times then silently drops them. Learn how to catch missed events before customers feel the pain." />
+  <meta property="og:image" content="https://lior-seats.github.io/webhookpulse-waitlist/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    :root {
+      --bg: #0d0f14; --surface: #141720; --surface2: #1b1f2c;
+      --border: #252a38; --accent: #7c4dff; --accent-h: #9b6fff;
+      --danger: #f75c5c; --text: #e8eaf2; --muted: #8890a8;
+      --success: #34d399; --radius: 10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.7; font-size: 16px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-h); text-decoration: underline; }
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 1.2rem 2rem; border-bottom: 1px solid var(--border); background: rgba(13,15,20,0.95); position: sticky; top: 0; z-index: 100; }
+    .logo { font-weight: 700; font-size: 1.1rem; color: var(--text); display: flex; align-items: center; gap: 0.5rem; }
+    .logo span { color: var(--accent); }
+    .nav-cta { background: var(--accent); color: #fff; padding: 0.4rem 1rem; border-radius: 6px; font-size: 0.875rem; font-weight: 600; }
+    .nav-cta:hover { background: var(--accent-h); color: #fff; text-decoration: none; }
+    main { max-width: 760px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+    .breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 1.5rem; }
+    .breadcrumb a { color: var(--muted); }
+    h1 { font-size: 2rem; font-weight: 800; line-height: 1.25; margin-bottom: 1rem; letter-spacing: -0.03em; }
+    .meta { color: var(--muted); font-size: 0.875rem; margin-bottom: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; }
+    h2 { font-size: 1.35rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--text); }
+    h3 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: var(--text); }
+    p { margin-bottom: 1rem; color: #cdd1e0; }
+    ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; color: #cdd1e0; }
+    li { margin-bottom: 0.4rem; }
+    pre { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; overflow-x: auto; margin: 1.25rem 0; font-size: 0.875rem; line-height: 1.6; }
+    code { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; color: #a8d8a8; }
+    pre code { color: #c9d1e0; }
+    .callout { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin: 2rem 0; }
+    .callout-warn { border-left-color: #f7b55c; }
+    .callout h4 { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text); }
+    .table-wrap { overflow-x: auto; margin: 1.5rem 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th { background: var(--surface2); text-align: left; padding: 0.6rem 1rem; border: 1px solid var(--border); color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 0.6rem 1rem; border: 1px solid var(--border); color: #cdd1e0; }
+    tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+    .cta-box { background: linear-gradient(135deg, rgba(124,77,255,0.12), rgba(124,77,255,0.06)); border: 1px solid rgba(124,77,255,0.3); border-radius: 14px; padding: 2rem; margin: 3rem 0; text-align: center; }
+    .cta-box h3 { font-size: 1.25rem; margin-bottom: 0.5rem; margin-top: 0; }
+    .cta-box p { margin-bottom: 1.25rem; }
+    .cta-btn { display: inline-block; background: var(--accent); color: #fff; padding: 0.75rem 1.75rem; border-radius: 8px; font-weight: 700; font-size: 0.95rem; }
+    .cta-btn:hover { background: var(--accent-h); color: #fff; text-decoration: none; }
+    footer { text-align: center; padding: 2rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="https://lior-seats.github.io/webhookpulse-waitlist/" class="logo">🔔 <span>WebhookPulse</span></a>
+  <a href="https://lior-seats.github.io/webhookpulse-waitlist/" class="nav-cta">Join Waitlist →</a>
+</nav>
+
+<main>
+  <div class="breadcrumb">
+    <a href="https://lior-seats.github.io/webhookpulse-waitlist/">WebhookPulse</a> / Blog /
+    <span>Stripe Webhook Silent Failures</span>
+  </div>
+
+  <h1>Why Stripe Webhooks Fail Silently After Retries (And How to Catch Them)</h1>
+  <div class="meta">September 2026 · 7 min read</div>
+
+  <p>You wake up Monday morning to an angry customer: their subscription was cancelled, their order never fulfilled, their access not revoked. You check your Stripe dashboard — the payment went through. You check your server logs — nothing. The problem was silent: a webhook that failed three weeks ago and never got a second chance.</p>
+
+  <p>Stripe webhooks fail silently. Understanding why — and building a detection system before it costs you customers — is one of the most important things you can do in a production payment integration.</p>
+
+  <h2>How Stripe Webhook Retries Work</h2>
+
+  <p>When your endpoint returns a non-2xx response (or times out), Stripe queues a retry. The retry schedule looks like this:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Attempt</th><th>Delay After Previous</th><th>Total Elapsed</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1st (original)</td><td>—</td><td>0</td></tr>
+        <tr><td>2nd retry</td><td>~5 minutes</td><td>~5 min</td></tr>
+        <tr><td>3rd retry</td><td>~30 minutes</td><td>~35 min</td></tr>
+        <tr><td>4th retry</td><td>~2 hours</td><td>~2.5 hrs</td></tr>
+        <tr><td>5th retry</td><td>~5 hours</td><td>~7.5 hrs</td></tr>
+        <tr><td>… up to 8 retries over ~3 days</td><td></td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>After the last retry fails, Stripe marks the event as <strong>failed</strong> and stops trying. There is no alert. There is no email (by default). There is no Slack message. The event is simply abandoned — and your business logic never runs.</p>
+
+  <div class="callout callout-warn">
+    <h4>⚠️ The dangerous part</h4>
+    <p>Stripe does offer email alerts for repeated webhook failures — but they only trigger after <em>multiple consecutive failures to the same endpoint</em>. A single critical event that fails quietly (like a <code>customer.subscription.deleted</code>) may never trigger an alert.</p>
+  </div>
+
+  <h2>What Gets Lost When Webhooks Fail</h2>
+
+  <p>Not all webhook events are equal. Some are informational. Others are load-bearing — your entire business logic depends on them running exactly once:</p>
+
+  <ul>
+    <li><strong>checkout.session.completed</strong> — Provision the product, create the account, send the welcome email. If this fails, the customer paid but got nothing.</li>
+    <li><strong>customer.subscription.deleted</strong> — Revoke access, downgrade the account. If this fails, a churned customer keeps using your paid product.</li>
+    <li><strong>invoice.payment_failed</strong> — Trigger dunning, pause service, notify the team. If this fails, revenue leaks silently.</li>
+    <li><strong>customer.subscription.updated</strong> — Adjust quotas, change plan-based features. If this fails, the customer is on the wrong plan.</li>
+  </ul>
+
+  <h2>Why Webhooks Fail in Production</h2>
+
+  <p>In development, webhook failures are obvious — you're watching the logs. In production, the failure modes are more insidious:</p>
+
+  <h3>1. Deploy-time downtime</h3>
+  <p>Your app restarts during a deploy. For 5–30 seconds, your webhook endpoint returns 502. If Stripe fires an event during that window, it queues a retry. If your next retry window falls during another deploy (increasingly likely if you deploy frequently), you can lose events across multiple retries.</p>
+
+  <h3>2. Database connection pool exhaustion</h3>
+  <p>High-traffic moments — a successful campaign, a Product Hunt launch — can saturate your connection pool. Your API returns 500 errors. Webhook handlers fail. Retries pile up and exhaust the same pool. The loop is self-reinforcing.</p>
+
+  <h3>3. Idempotency bugs</h3>
+  <p>Webhook handlers that fail partway through and don't use idempotency keys create a nightmare: the first attempt partially committed state, the retry tries to run the same logic, and you get duplicate charges, double-provisioned accounts, or worse — a handler that throws on the retry because of the partial state from the first run.</p>
+
+  <h3>4. Third-party timeouts</h3>
+  <p>Your webhook handler calls Mailchimp to add the subscriber. Mailchimp is having a slow day. Your handler times out (Stripe's timeout: 30 seconds). The event fails. Stripe retries. Mailchimp is still slow. The event eventually exhausts retries — and the subscriber is never added to your list.</p>
+
+  <h2>Detecting Silent Failures Today</h2>
+
+  <p>There are a few approaches teams use before they have proper monitoring:</p>
+
+  <h3>Polling the Stripe Events API</h3>
+  <pre><code>// Check for failed events in the last 24 hours
+const failedEvents = await stripe.events.list({
+  delivery_success: false,
+  created: { gte: Math.floor(Date.now() / 1000) - 86400 },
+  limit: 100
+});
+
+if (failedEvents.data.length > 0) {
+  console.error(`${failedEvents.data.length} failed events in last 24h`);
+  // alert your team
+}</code></pre>
+
+  <p>This works, but requires a scheduled job and manual triage. You need to run it periodically, deduplicate across runs, distinguish transient failures from persistent ones, and build the alerting pipeline yourself.</p>
+
+  <h3>Stripe Dashboard Webhook Logs</h3>
+  <p>The Stripe Dashboard shows webhook delivery attempts under <strong>Developers → Webhooks → [your endpoint] → Recent deliveries</strong>. You can filter by status. But you have to check it manually — it won't alert you.</p>
+
+  <h3>Datadog / Sentry webhook handler monitoring</h3>
+  <p>If you already have APM, you can track webhook handler errors as custom metrics. This gives you alerting but requires custom instrumentation and doesn't give you the Stripe-side view (event type, retry count, payload).</p>
+
+  <h2>The Gap: No Passive Cross-Provider Monitor</h2>
+
+  <p>What's missing is a tool that passively watches your webhook endpoints across providers — Stripe, GitHub, Twilio, Shopify, SendGrid — and alerts you the moment delivery starts failing. Not after 8 retries over 3 days. Within minutes.</p>
+
+  <p>This should work without requiring you to modify your webhook handler code, add a polling job, or check any dashboard manually. It should send a Slack message, an email, or a PagerDuty alert the moment it detects delivery failures — with the event type, provider, and failure count in the alert body so you can fix it fast.</p>
+
+  <div class="cta-box">
+    <h3>🔔 Get alerted when your webhooks start failing</h3>
+    <p>WebhookPulse monitors Stripe, GitHub, Twilio, Shopify, and more. Get an alert within minutes of the first delivery failure — not after 3 days of silent retries.</p>
+    <a href="https://lior-seats.github.io/webhookpulse-waitlist/" class="cta-btn">Join the WebhookPulse waitlist →</a>
+    <p style="margin-top:0.75rem;font-size:0.85rem;color:var(--muted)">$29/month · 3 months free for early access</p>
+  </div>
+
+  <h2>Quick Checklist: Webhook Reliability for Production</h2>
+
+  <ul>
+    <li>✅ Return 2xx from your endpoint within 30 seconds (queue processing async if needed)</li>
+    <li>✅ Implement idempotency keys — check if event was already processed before acting</li>
+    <li>✅ Log every incoming event with its ID and type</li>
+    <li>✅ Set up Stripe email alerts for consecutive delivery failures (Developers → Webhooks → [endpoint] → Edit → Email notifications)</li>
+    <li>✅ Poll <code>stripe.events.list({"delivery_success": false})</code> daily via a scheduled job</li>
+    <li>✅ Monitor your webhook handler error rate via APM</li>
+    <li>✅ Use a tool like WebhookPulse for real-time cross-provider alerting</li>
+  </ul>
+
+  <p>Silent webhook failures are a production tax every team pays eventually. The teams that pay it least are the ones who treat webhook delivery as a first-class operational concern — not a set-and-forget background process.</p>
+
+</main>
+<footer>
+  <p>© 2026 WebhookPulse · <a href="https://lior-seats.github.io/webhookpulse-waitlist/">Join the waitlist</a></p>
+  <script>(function(){var p=window.location.pathname.split('/').filter(Boolean)[0]||'root';fetch('https://agent-control-plane-w3m9.onrender.com/api/hit?page='+encodeURIComponent(p));})()</script>
+</footer>
+</body>
+</html>
