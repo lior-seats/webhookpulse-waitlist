@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Monitor Webhook Delivery Failures: Stripe, GitHub, Twilio (2026)</title>
+  <meta name="description" content="A practical guide to monitoring webhook delivery failures across Stripe, GitHub, Twilio, and Shopify in production. Includes polling scripts, alerting patterns, and passive monitoring approaches." />
+  <link rel="canonical" href="https://lior-seats.github.io/webhookpulse-waitlist/blog/monitor-webhook-delivery-failures.html" />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://lior-seats.github.io/webhookpulse-waitlist/blog/monitor-webhook-delivery-failures.html" />
+  <meta property="og:title" content="How to Monitor Webhook Delivery Failures: Stripe, GitHub, Twilio" />
+  <meta property="og:description" content="Practical patterns for detecting and alerting on webhook failures before customers report them." />
+  <meta property="og:image" content="https://lior-seats.github.io/webhookpulse-waitlist/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    :root { --bg:#0d0f14;--surface:#141720;--surface2:#1b1f2c;--border:#252a38;--accent:#7c4dff;--accent-h:#9b6fff;--danger:#f75c5c;--text:#e8eaf2;--muted:#8890a8;--success:#34d399;--radius:10px; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.7;font-size:16px;}
+    a{color:var(--accent);text-decoration:none;}a:hover{color:var(--accent-h);text-decoration:underline;}
+    nav{display:flex;align-items:center;justify-content:space-between;padding:1.2rem 2rem;border-bottom:1px solid var(--border);background:rgba(13,15,20,0.95);position:sticky;top:0;z-index:100;}
+    .logo{font-weight:700;font-size:1.1rem;color:var(--text);display:flex;align-items:center;gap:0.5rem;}.logo span{color:var(--accent);}
+    .nav-cta{background:var(--accent);color:#fff;padding:0.4rem 1rem;border-radius:6px;font-size:0.875rem;font-weight:600;}.nav-cta:hover{background:var(--accent-h);color:#fff;text-decoration:none;}
+    main{max-width:760px;margin:0 auto;padding:3rem 1.5rem 5rem;}
+    .breadcrumb{font-size:0.85rem;color:var(--muted);margin-bottom:1.5rem;}.breadcrumb a{color:var(--muted);}
+    h1{font-size:2rem;font-weight:800;line-height:1.25;margin-bottom:1rem;letter-spacing:-0.03em;}
+    .meta{color:var(--muted);font-size:0.875rem;margin-bottom:2.5rem;border-bottom:1px solid var(--border);padding-bottom:1.5rem;}
+    h2{font-size:1.35rem;font-weight:700;margin:2.5rem 0 0.75rem;color:var(--text);}
+    h3{font-size:1.1rem;font-weight:600;margin:1.5rem 0 0.5rem;color:var(--text);}
+    p{margin-bottom:1rem;color:#cdd1e0;}
+    ul,ol{padding-left:1.5rem;margin-bottom:1rem;color:#cdd1e0;}li{margin-bottom:0.4rem;}
+    pre{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;overflow-x:auto;margin:1.25rem 0;font-size:0.875rem;line-height:1.6;}
+    code{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;color:#a8d8a8;}pre code{color:#c9d1e0;}
+    .callout{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius);padding:1.25rem 1.5rem;margin:2rem 0;}
+    .callout h4{font-size:0.9rem;font-weight:700;margin-bottom:0.5rem;color:var(--text);}
+    .table-wrap{overflow-x:auto;margin:1.5rem 0;}
+    table{width:100%;border-collapse:collapse;font-size:0.9rem;}
+    th{background:var(--surface2);text-align:left;padding:0.6rem 1rem;border:1px solid var(--border);color:var(--muted);font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.05em;}
+    td{padding:0.6rem 1rem;border:1px solid var(--border);color:#cdd1e0;}
+    tr:nth-child(even) td{background:rgba(255,255,255,0.02);}
+    .cta-box{background:linear-gradient(135deg,rgba(124,77,255,0.12),rgba(124,77,255,0.06));border:1px solid rgba(124,77,255,0.3);border-radius:14px;padding:2rem;margin:3rem 0;text-align:center;}
+    .cta-box h3{font-size:1.25rem;margin-bottom:0.5rem;margin-top:0;}.cta-box p{margin-bottom:1.25rem;}
+    .cta-btn{display:inline-block;background:var(--accent);color:#fff;padding:0.75rem 1.75rem;border-radius:8px;font-weight:700;font-size:0.95rem;}.cta-btn:hover{background:var(--accent-h);color:#fff;text-decoration:none;}
+    footer{text-align:center;padding:2rem;border-top:1px solid var(--border);color:var(--muted);font-size:0.875rem;}
+  </style>
+</head>
+<body>
+<nav>
+  <a href="https://lior-seats.github.io/webhookpulse-waitlist/" class="logo">🔔 <span>WebhookPulse</span></a>
+  <a href="https://lior-seats.github.io/webhookpulse-waitlist/" class="nav-cta">Join Waitlist →</a>
+</nav>
+<main>
+  <div class="breadcrumb">
+    <a href="https://lior-seats.github.io/webhookpulse-waitlist/">WebhookPulse</a> / Blog /
+    <span>Monitor Webhook Delivery</span>
+  </div>
+
+  <h1>How to Monitor Webhook Delivery Failures: Stripe, GitHub, Twilio (2026 Guide)</h1>
+  <div class="meta">September 2026 · 9 min read</div>
+
+  <p>Webhooks are the backbone of modern SaaS integrations. They let Stripe tell you a payment succeeded, GitHub notify you of a new PR, and Twilio confirm a message was delivered. When they work, they're invisible infrastructure. When they fail, the consequences range from annoying (a missing notification) to catastrophic (a customer paying but not getting access).</p>
+
+  <p>This guide covers practical patterns for monitoring webhook delivery across the major providers — so you know about failures before your customers do.</p>
+
+  <h2>Why Webhook Monitoring Is Different from API Monitoring</h2>
+
+  <p>API monitoring is active: you call an endpoint, check the response, alert on errors. Webhook monitoring is passive: you're waiting to receive calls, and you only know something is wrong when the calls stop arriving or when you go looking for failures.</p>
+
+  <p>This asymmetry is why most teams don't monitor webhooks well. There's no HTTP check you can run against your own endpoint to verify Stripe's delivery health. You have to either:</p>
+  <ol>
+    <li>Poll the provider's events/deliveries API</li>
+    <li>Instrument your handler to track receipt and alert on gaps</li>
+    <li>Use a third-party passive monitor</li>
+  </ol>
+
+  <h2>Per-Provider Monitoring Approaches</h2>
+
+  <h3>Stripe</h3>
+
+  <p>Stripe provides the most complete delivery visibility of any major webhook provider. Use the Events API to find failed deliveries:</p>
+
+  <pre><code>const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+// Find all events that failed delivery in the last 24h
+async function findFailedWebhooks() {
+  const events = await stripe.events.list({
+    delivery_success: false,
+    created: { gte: Math.floor(Date.now() / 1000) - 86400 },
+    limit: 100,
+  });
+
+  return events.data.map(e => ({
+    id: e.id,
+    type: e.type,
+    created: new Date(e.created * 1000).toISOString(),
+    attempts: e.request?.idempotency_key,
+  }));
+}</code></pre>
+
+  <p>Run this as a daily cron job. If <code>events.data.length &gt; 0</code>, alert your team via Slack, email, or PagerDuty.</p>
+
+  <p>You can also check a specific endpoint's recent delivery attempts via the Stripe Dashboard: <strong>Developers → Webhooks → [your endpoint] → Recent deliveries</strong>. Filter by status. The limitation: you have to do this manually.</p>
+
+  <h3>GitHub</h3>
+
+  <p>GitHub App webhooks can be monitored via the Deliveries API. For a GitHub App installation:</p>
+
+  <pre><code>// List recent deliveries for a GitHub App webhook
+const { Octokit } = require("@octokit/rest");
+const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
+const deliveries = await octokit.request(
+  'GET /app/hook/deliveries',
+  { per_page: 50 }
+);
+
+const failed = deliveries.data.filter(d =>
+  d.status === 'Invalid HTTP Response Code' ||
+  d.status === 'Timed Out' ||
+  d.redelivery === false && d.status !== 'OK'
+);
+
+if (failed.length > 0) {
+  console.error(`${failed.length} failed GitHub webhook deliveries`);
+}</code></pre>
+
+  <p>GitHub doesn't retry failed webhooks aggressively — it tries once and marks the delivery failed. This makes monitoring even more critical.</p>
+
+  <h3>Twilio</h3>
+
+  <p>Twilio webhook delivery failures show up as <code>webhookStatusCallback</code> events (for SMS) and in the Debugger (for Voice). You can query the Twilio Error Log API:</p>
+
+  <pre><code>const client = require('twilio')(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+// Get recent error alerts (30011 = webhook delivery failure)
+const alerts = await client.monitor.alerts.list({
+  errorCode: 30011,
+  startDate: new Date(Date.now() - 86400000)
+});
+
+if (alerts.length > 0) {
+  console.error(`${alerts.length} Twilio webhook failures in last 24h`);
+}</code></pre>
+
+  <h3>Shopify</h3>
+
+  <p>Shopify shows webhook delivery failures in the Partner Dashboard under <strong>Apps → [your app] → Webhooks</strong>. For programmatic access, the GraphQL Admin API exposes webhook subscription delivery status, but it's less ergonomic than Stripe's REST API.</p>
+
+  <h2>The Gap: Cross-Provider Aggregation</h2>
+
+  <p>Once you're running multiple integrations, you need to check Stripe, GitHub, Twilio, Shopify, and SendGrid individually. Each has a different API shape, different authentication, different retry semantics, and different alerting. The total overhead of building and maintaining this monitoring stack is measured in days — and it needs to be re-checked whenever a new provider is added.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Provider</th><th>Retry Count</th><th>Retry Window</th><th>API for Failed Events</th><th>Built-in Alerts</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Stripe</td><td>Up to 8</td><td>~3 days</td><td>Yes (Events API)</td><td>Email (consecutive failures only)</td></tr>
+        <tr><td>GitHub</td><td>1</td><td>Immediate only</td><td>Yes (Deliveries API)</td><td>None</td></tr>
+        <tr><td>Twilio</td><td>Varies by product</td><td>Varies</td><td>Error Log API</td><td>Email (configurable)</td></tr>
+        <tr><td>Shopify</td><td>19 over 48h</td><td>~48 hours</td><td>GraphQL only</td><td>None</td></tr>
+        <tr><td>SendGrid</td><td>3 over 24h</td><td>~24 hours</td><td>Yes (Event Webhook)</td><td>None</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Instrumenting Your Webhook Handler</h2>
+
+  <p>The most reliable approach is handler-side instrumentation — you know what you received, not just what the provider thinks you received:</p>
+
+  <pre><code>// Express webhook handler with receipt tracking
+app.post('/webhooks/stripe', express.raw({type: 'application/json'}), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Track receipt immediately (before processing)
+  await db.webhookReceipts.insert({
+    provider: 'stripe',
+    event_id: event.id,
+    event_type: event.type,
+    received_at: new Date(),
+    status: 'received'
+  });
+
+  // Process asynchronously
+  processWebhookAsync(event).catch(err => {
+    db.webhookReceipts.update(event.id, { status: 'failed', error: err.message });
+    alertTeam(`Stripe webhook ${event.type} failed: ${err.message}`);
+  });
+
+  // Always respond 200 immediately
+  res.json({ received: true });
+});</code></pre>
+
+  <p>This approach captures failures even when the provider doesn't know about them (e.g., handler throws after returning 200).</p>
+
+  <div class="cta-box">
+    <h3>🔔 Monitor all your webhooks in one place</h3>
+    <p>WebhookPulse aggregates delivery failures across Stripe, GitHub, Twilio, Shopify, SendGrid, and more. Get a Slack or email alert within minutes of the first failure — before retries exhaust and customers complain.</p>
+    <a href="https://lior-seats.github.io/webhookpulse-waitlist/" class="cta-btn">Join the WebhookPulse waitlist →</a>
+    <p style="margin-top:0.75rem;font-size:0.85rem;color:var(--muted)">$29/month · 3 months free for early access</p>
+  </div>
+
+  <h2>Summary: Webhook Monitoring Checklist</h2>
+  <ul>
+    <li>✅ Poll <code>stripe.events.list({delivery_success: false})</code> daily</li>
+    <li>✅ Check GitHub Deliveries API for any failed status codes</li>
+    <li>✅ Enable Twilio Debugger email alerts for error code 30011</li>
+    <li>✅ Instrument your handler to track receipt separately from processing</li>
+    <li>✅ Alert on processing failures after returning 200</li>
+    <li>✅ Set up a cross-provider monitor to avoid checking each dashboard manually</li>
+  </ul>
+</main>
+<footer>
+  <p>© 2026 WebhookPulse · <a href="https://lior-seats.github.io/webhookpulse-waitlist/">Join the waitlist</a></p>
+  <script>(function(){var p=window.location.pathname.split('/').filter(Boolean)[0]||'root';fetch('https://agent-control-plane-w3m9.onrender.com/api/hit?page='+encodeURIComponent(p));})()</script>
+</footer>
+</body>
+</html>
